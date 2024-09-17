@@ -25,6 +25,22 @@ void set_socket_timeout(int sockfd, int timeout) {
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 }
 
+void calcMessage_ntoh(struct calcMessage *cm) {
+    cm->type = ntohs(cm->type);
+    cm->message = ntohl(cm->message);
+    cm->protocol = ntohs(cm->protocol);
+    cm->major_version = ntohs(cm->major_version);
+    cm->minor_version = ntohs(cm->minor_version);
+}
+
+void calcMessage_hton(struct calcMessage *cm) {
+    cm->type = htons(cm->type);
+    cm->message = htonl(cm->message);
+    cm->protocol = htons(cm->protocol);
+    cm->major_version = htons(cm->major_version);
+    cm->minor_version = htons(cm->minor_version);
+}
+
 void calcProtocol_ntoh(struct calcProtocol *cp) {
     cp->type = ntohs(cp->type);
     cp->major_version = ntohs(cp->major_version);
@@ -34,6 +50,23 @@ void calcProtocol_ntoh(struct calcProtocol *cp) {
     cp->inValue1 = ntohl(cp->inValue1);
     cp->inValue2 = ntohl(cp->inValue2);
     cp->inResult = ntohl(cp->inResult);
+    cp->flValue1 = ntohl(cp->flValue1);
+    cp->flValue2 = ntohl(cp->flValue2);
+    cp->flResult = ntohl(cp->flResult);
+}
+
+void calcProtocol_hton(struct calcProtocol *cp) {
+    cp->type = htons(cp->type);
+    cp->major_version = htons(cp->major_version);
+    cp->minor_version = htons(cp->minor_version);
+    cp->id = htonl(cp->id);
+    cp->arith = htonl(cp->arith);
+    cp->inValue1 = htonl(cp->inValue1);
+    cp->inValue2 = htonl(cp->inValue2);
+    cp->inResult = htonl(cp->inResult);
+    cp->flValue1 = htonl(cp->flValue1);
+    cp->flValue2 = htonl(cp->flValue2);
+    cp->flResult = htonl(cp->flResult);
 }
 
 void print_calcProtocol(struct calcProtocol *cp) {
@@ -45,9 +78,37 @@ void print_calcProtocol(struct calcProtocol *cp) {
     printf("In value 1: %d\n", cp->inValue1);
     printf("In value 2: %d\n", cp->inValue2);
     printf("In result: %d\n", cp->inResult);
-    printf("Fl Value 1: %f", cp->flValue1);
-    printf("Fl Value 2: %f", cp->flValue2);
-    printf("Fl Result: %f", cp->flResult);
+    printf("Fl Value 1: %f\n", cp->flValue1);
+    printf("Fl Value 2: %f\n", cp->flValue2);
+    printf("Fl Result: %f\n", cp->flResult);
+}
+
+int get_float_result(float arith, float f1, float f2) {
+    int fresult;
+    if(arith==1){
+        fresult=f1+f2;
+    } else if (arith==2){
+        fresult=f1-f2;
+    } else if (arith==3){
+        fresult=f1*f2;
+    } else if (arith==4){
+        fresult=f1/f2;
+    }
+    return fresult;
+}
+
+int get_int_result(int arith, int i1, int i2) {
+    int iresult;
+    if(arith==1){
+        iresult=i1+i2;
+    } else if (arith==2){
+        iresult=i1-i2;
+    } else if (arith==3){
+        iresult=i1*i2;
+    } else if (arith==4){
+        iresult=i1/i2;
+    }
+    return iresult;
 }
 
 int main(int argc, char *argv[]){
@@ -156,6 +217,62 @@ int main(int argc, char *argv[]){
         memcpy(&protocol_response, buf, sizeof(struct calcProtocol));
         calcProtocol_ntoh(&protocol_response);
         print_calcProtocol(&protocol_response);
+
+        // Check what type of calculation to perform. int or float
+        if (protocol_response.arith < 5) {
+            // int
+            int result = get_int_result(protocol_response.arith, protocol_response.inValue1, protocol_response.inValue2);
+            printf("Result: %d\n", result);
+            protocol_response.inResult = result;
+        } else {
+            // float
+            double result = get_float_result(protocol_response.arith, protocol_response.flValue1, protocol_response.flValue2);
+            printf("Result: %f\n", result);
+            protocol_response.flResult = result;
+        }
+
+        // send the result back in the same format
+        calcProtocol_hton(&protocol_response);
+
+        // send the message using sendto
+        retries = 0;
+        while (retries <= MAX_RETRIES) {
+            if (retries == MAX_RETRIES) {
+                printf("No response after %d retries. Exiting...\n", MAX_RETRIES);
+                exit(1);
+            }
+            if (sendto(s, &protocol_response, sizeof(protocol_response), 0, res->ai_addr, res->ai_addrlen) == -1) {
+                printf("Error sending message\n");
+                perror("sendto");
+                exit(1);
+            }
+            printf("Sent message response\n");
+            bytes_received = recvfrom(s, &buf, sizeof(buf), 0, res->ai_addr, &res->ai_addrlen);
+            if (bytes_received == -1) {
+                retries++;
+            } else {
+                printf("Received message response\n");
+                printf("Received %d number of bytes\n", bytes_received);
+                printf("Message: %s\n", buf);
+                break;
+            }
+        }
+
+        if (bytes_received == -1) {
+            printf("No response after %d retries. Exiting...\n", MAX_RETRIES);
+            exit(1);
+        }
+
+        if (bytes_received == 12) {
+            // convert the message to host byte order
+            memcpy(&message_response, buf, sizeof(struct calcMessage));
+            calcMessage_ntoh(&message_response);
+            printf("Message response: %d\n", message_response.message);
+        } else {
+            printf("Invalid response\n");
+            exit(1);
+        }
+
     } else if (bytes_received == sizeof(struct calcMessage)) {
         #ifdef DEBUG
         printf("Received message response\n");
