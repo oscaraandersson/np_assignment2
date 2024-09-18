@@ -14,7 +14,7 @@
 
 #include "protocol.h"
 
-#define DEBUG
+// #define DEBUG
 #define MAX_RETRIES 3
 #define TIMEOUT 2
 
@@ -165,16 +165,8 @@ int main(int argc, char *argv[]){
     }
 
     // populate the message to be sent
-    struct calcMessage message;
-    message.type = htons(22);
-    message.message = htonl(0);
-    message.protocol = htons(17);
-    message.major_version = htons(1);
-    message.minor_version = htons(0);
-
-    // send the message using sendto
-    // use max retries to avoid infinite loop
-
+    struct calcMessage message = {22, 0, 17, 1, 0};
+    calcMessage_hton(&message);
 
     // receive the message using recvfrom
     struct calcProtocol protocol_response;
@@ -191,7 +183,6 @@ int main(int argc, char *argv[]){
         }
         if (sendto(s, &message, sizeof(message), 0, res->ai_addr, res->ai_addrlen) == -1) {
             printf("Error sending message\n");
-            perror("sendto");
             exit(1);
         }
         printf("Sent message\n");
@@ -199,7 +190,6 @@ int main(int argc, char *argv[]){
         if (bytes_received == -1) {
             retries++;
         } else {
-            printf("Received message\n");
             break;
         }
     }
@@ -208,7 +198,9 @@ int main(int argc, char *argv[]){
         exit(1);
     }
 
+    #ifdef DEBUG
     printf("bytes received: %d\n", bytes_received);
+    #endif
 
     if (bytes_received == sizeof(struct calcProtocol)) {
         #ifdef DEBUG
@@ -216,7 +208,9 @@ int main(int argc, char *argv[]){
         #endif
         memcpy(&protocol_response, buf, sizeof(struct calcProtocol));
         calcProtocol_ntoh(&protocol_response);
+        #ifdef DEBUG
         print_calcProtocol(&protocol_response);
+        #endif
 
         // Check what type of calculation to perform. int or float
         if (protocol_response.arith < 5) {
@@ -246,14 +240,18 @@ int main(int argc, char *argv[]){
                 perror("sendto");
                 exit(1);
             }
+            #ifdef DEBUG
             printf("Sent message response\n");
+            #endif
             bytes_received = recvfrom(s, &buf, sizeof(buf), 0, res->ai_addr, &res->ai_addrlen);
             if (bytes_received == -1) {
                 retries++;
             } else {
+                #ifdef DEBUG
                 printf("Received message response\n");
                 printf("Received %d number of bytes\n", bytes_received);
                 printf("Message: %s\n", buf);
+                #endif
                 break;
             }
         }
@@ -267,7 +265,9 @@ int main(int argc, char *argv[]){
             // convert the message to host byte order
             memcpy(&message_response, buf, sizeof(struct calcMessage));
             calcMessage_ntoh(&message_response);
-            printf("Message response: %d\n", message_response.message);
+            if (message_response.message == 1) {
+                printf("OK\n");
+            }
         } else {
             printf("Invalid response\n");
             exit(1);
@@ -283,9 +283,6 @@ int main(int argc, char *argv[]){
         printf("Invalid response\n");
         exit(1);
     }
-    // calcProtocol_ntoh(&protocol_response);
-    // print_calcProtocol(&protocol_response);
-    // print the response
     return 0;
 
 }
